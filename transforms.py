@@ -76,6 +76,57 @@ class RandomVerticalFlip(object):
             if "masks" in target:
                 target["masks"] = target["masks"].flip(1)
         return image, target
+
+class RandomResize(object):
+    def __init__(self, min_dim, max_dim):
+        
+        self.inp_dim =  torch.LongTensor(1).random_(min_dim, max_dim)
+        
+    def __call__(self, image, target):
+        # type: (Tensor, Optional[Dict[str, Tensor]])
+        h, w = image.shape[-2:]
+        im_shape = torch.tensor(image.shape[-2:])
+
+        min_size = float(torch.min(im_shape))
+        max_size = float(torch.max(im_shape))
+
+        size = float(self.inp_dim)
+        scale_factor = size / min_size
+
+        image = torch.nn.functional.interpolate(
+            image[None], scale_factor=scale_factor, mode='bilinear',
+            align_corners=False)[0]
+
+        if target is None:
+            return image, target
+
+        bbox = target["boxes"]
+        bbox = self.resize_boxes(bbox, (h, w), image.shape[-2:])
+        target["boxes"] = bbox
+
+        if "masks" in target:
+            mask = target["masks"]
+            mask = misc_nn_ops.interpolate(mask[None].float(), scale_factor=scale_factor)[0].byte()
+            target["masks"] = mask
+
+        return image, target
+
+    def resize_boxes(self,boxes, original_size, new_size):
+        # type: (Tensor, List[int], List[int])
+        ratios = [
+            torch.tensor(s, dtype=torch.float32, device=boxes.device) /
+            torch.tensor(s_orig, dtype=torch.float32, device=boxes.device)
+            for s, s_orig in zip(new_size, original_size)
+        ]
+        ratio_height, ratio_width = ratios
+        xmin, ymin, xmax, ymax = boxes.unbind(1)
+
+        xmin = xmin * ratio_width
+        xmax = xmax * ratio_width
+        ymin = ymin * ratio_height
+        ymax = ymax * ratio_height
+        return torch.stack((xmin, ymin, xmax, ymax), dim=1)    
+
     
 class Resize(object):
     def __init__(self, inp_dim):

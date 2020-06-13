@@ -31,7 +31,8 @@ def get_transform(train):
     transforms = []
     # converts the image, a PIL image, into a PyTorch Tensor
     transforms.append(T.ToTensor())
-    transforms.append(T.Resize(800))
+    #transforms.append(T.Resize(800))
+    transforms.append(T.RandomResize(800,1024))
     if train:
         # during training, randomly flip the training images
         # and ground-truth for data augmentation
@@ -72,13 +73,18 @@ def get_instance_segmentation_model(num_classes):
 
 def compute_miou(actual, pred, num_class=2):
     a = actual
-    a = a.reshape((800*800,))
+    ah,aw = a.shape[-2:]
+    a = a.reshape((ah*aw,))
     a_count = np.bincount(a, weights = None, minlength = num_class) # A
     
     b = pred
-    b = b.reshape((800*800,))
+    bh,bw = b.shape[-2:]
+    b = b.reshape((bh*bw,))
     b_count = np.bincount(b, weights = None, minlength = num_class) # B
     
+    assert ah == bh
+    assert aw == bw  
+
     c = a * num_class + b
     cm = np.bincount(c, weights = None, minlength = num_class * num_class)
     cm = cm.reshape((num_class, num_class))
@@ -100,7 +106,11 @@ def validate(epoch,model, data_loader, device, threshold = 0.50):
     model.eval()
     metric_logger = utils.MetricLogger(delimiter="  ")
     header = 'Test:'
-    tmp = np.ones((800,800),dtype=np.uint8)
+    data = data_loader.__iter__()
+    img,tar = data.next()
+    h, w = img[0].shape[-2:]
+    
+    tmp = np.ones((h,w),dtype=np.uint8)
     
     for image, targets in metric_logger.log_every(epoch,data_loader, 25, header):
         image = list(img.to(device) for img in image)
@@ -129,7 +139,7 @@ def validate(epoch,model, data_loader, device, threshold = 0.50):
             pred_mask = np.where(np.any(masks == True, axis=0),tmp,0)
 
         else:
-            pred_mask = np.zeros((800,800),dtype=np.uint8)    
+            pred_mask = np.zeros((h,w),dtype=np.uint8)    
         evaluator_time = time.time() - evaluator_time
         
         miou = compute_miou(target_mask, pred_mask)
